@@ -12,7 +12,7 @@ services:
       - db
 
   db:
-    image: mongo
+    image: arm64v8/mongo
     volumes:
       - /srv/docker/Niete/mongodb/data/db:/data/db
       - /srv/docker/Niete/mongodb/data/configdb:/data/configdb
