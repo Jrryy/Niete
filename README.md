@@ -66,3 +66,8 @@ Total pulls saved: 482
 > ```
 
 - `$help`: Displays a help message explaining these commands.
+
+### Why Niete?
+Because...
+
+![Cursed Niete](https://i.redd.it/hhu86fkkl3o21.png)
