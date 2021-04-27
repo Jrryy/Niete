@@ -137,10 +137,19 @@ func setQuantity(discordId, field string, quantity int, players *mongo.Collectio
 	return err
 }
 
-func setHandler(session *dgo.Session, args []string, channel, discordId string) error {
+func addQuantity(discordId, field string, quantity int, players *mongo.Collection) error {
+	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	_, err := players.UpdateOne(ctx,
+		bson.M{"discordId": discordId},
+		bson.M{"$inc": bson.M{field: quantity}},
+	)
+	return err
+}
+
+func parseSparkArgs(session *dgo.Session, args []string, channel string) (string, int, error) {
 	if len(args) < 2 {
 		_, err := session.ChannelMessageSend(channel, "Specify correctly the kind of pulls you want to set.")
-		return err
+		return "", 0, err
 	} else {
 		field := ""
 		switch args[1] {
@@ -156,45 +165,57 @@ func setHandler(session *dgo.Session, args []string, channel, discordId string) 
 				channel,
 				"Specify correctly the kind of pulls you want to set.",
 			)
-			return err
+			return "", 0, err
 		}
 		if len(args) < 3 {
 			_, err := session.ChannelMessageSend(channel, "Specify how many pulls you want to set.")
-			return err
+			return "", 0, err
 		}
 		quantity, err := strconv.Atoi(args[2])
 		if err != nil {
 			_, err := session.ChannelMessageSend(channel, "Please input a number.")
-			return err
+			return "", 0, err
 		}
-		var playerDataDict map[string]interface{}
-		collection := getDatabase().Collection("players")
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
-		result, err := collection.FindOne(ctx, bson.M{"discordId": discordId}).DecodeBytes()
-		var totalBefore int32 = 0
-		err = bson.Unmarshal(result, &playerDataDict)
-		if err != nil {
-			err = createPlayerDocument(session, channel, discordId, collection)
-			if err != nil {
-				return err
-			}
-		} else {
-			totalBefore = getTotalPulls(playerDataDict)
-		}
-		err = setQuantity(discordId, field, quantity, collection)
-		if err != nil {
-			return err
-		}
-		result, _ = collection.FindOne(ctx, bson.M{"discordId": discordId}).DecodeBytes()
-		_ = bson.Unmarshal(result, &playerDataDict)
-		totalPulls := getTotalPulls(playerDataDict)
-		message := fmt.Sprintf("You now have %d draws!", totalPulls)
-		if totalBefore/300 < totalPulls/300 {
-			message = message + "\n:confetti_ball: Congratulations! You've saved up a spark! :confetti_ball:"
-		}
-		_, err = session.ChannelMessageSend(channel, message)
+		return field, quantity, nil
+	}
+}
+
+func sparkUpdateHandler(session *dgo.Session, args []string, channel, discordId, op string) error {
+	field, quantity, err := parseSparkArgs(session, args, channel)
+	if err != nil {
 		return err
 	}
+	var playerDataDict map[string]interface{}
+	collection := getDatabase().Collection("players")
+	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	result, err := collection.FindOne(ctx, bson.M{"discordId": discordId}).DecodeBytes()
+	var totalBefore int32 = 0
+	err = bson.Unmarshal(result, &playerDataDict)
+	if err != nil {
+		err = createPlayerDocument(session, channel, discordId, collection)
+		if err != nil {
+			return err
+		}
+	} else {
+		totalBefore = getTotalPulls(playerDataDict)
+	}
+	if op == "set" {
+		err = setQuantity(discordId, field, quantity, collection)
+	} else {
+		err = addQuantity(discordId, field, quantity, collection)
+	}
+	if err != nil {
+		return err
+	}
+	result, _ = collection.FindOne(ctx, bson.M{"discordId": discordId}).DecodeBytes()
+	_ = bson.Unmarshal(result, &playerDataDict)
+	totalPulls := getTotalPulls(playerDataDict)
+	message := fmt.Sprintf("You now have %d draws!", totalPulls)
+	if totalBefore/300 < totalPulls/300 {
+		message = message + "\n:confetti_ball: Congratulations! You've saved up a spark! :confetti_ball:"
+	}
+	_, err = session.ChannelMessageSend(channel, message)
+	return err
 }
 
 func showTime(session *dgo.Session, channel string) error {
@@ -300,8 +321,8 @@ func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 				e = sendHelp(session, m.ChannelID)
 			case "":
 				e = createOrRetrievePlayerData(session, m.ChannelID, m.Author.ID, m.Author.Username)
-			case "set":
-				e = setHandler(session, args, m.ChannelID, m.Author.ID)
+			case "set", "add":
+				e = sparkUpdateHandler(session, args, m.ChannelID, m.Author.ID, args[0])
 			default:
 				log.Printf("The command '%s' was invalid ", m.Content)
 			}
