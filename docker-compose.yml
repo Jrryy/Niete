@@ -1,6 +1,7 @@
 version: "3"
 services:
   backend:
+    restart: always
     image: "backend"
     build:
       context: .
@@ -12,6 +13,7 @@ services:
       - db
 
   db:
+    restart: always
     image: mongo
     volumes:
       - /srv/docker/Niete/mongodb/data/db:/data/db
