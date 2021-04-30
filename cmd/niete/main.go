@@ -13,6 +13,7 @@ import (
 	"io/ioutil"
 	"log"
 	"math"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
@@ -45,7 +46,9 @@ func sendHelp(session *dgo.Session, channel string) error {
 		"You know how this goes:\n" +
 		"\t- $time: Display the current date and time in Japan.\n" +
 		"\t- $spark: Show your stats (or creates your profile if it's your first time).\n" +
-		"\t- $spark set [crystals|xtals|tickets|ticket|tix|10part] <number>: Set a new amount of draws.\n" +
+		"\t- $spark set [crystals|xtals|tickets|ticket|tix|10part] <number>: Set a new amount of pulls.\n" +
+		"\t- $spark add [crystals|xtals|tickets|ticket|tix|10part] <number>: Add some amount to your pulls.\n" +
+		"\t- $bless: Ask immunity Lily for her blessing before pulling (might and will go wrong).\n" +
 		"\t- $gw <crew_name>: Retrieves past performances of the specified crew in GW.\n" +
 		"```"
 	_, e := session.ChannelMessageSend(channel, helpString)
@@ -288,6 +291,23 @@ func searchGWOpponent(session *dgo.Session, channel, opponent string) error {
 	return err
 }
 
+func bless(session *dgo.Session, channel string) error {
+	var filename string
+	if rand.Int()%2 == 1 {
+		filename = "bless.png"
+	} else {
+		filename = "curse.png"
+	}
+	path := "img/" + filename
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = session.ChannelFileSend(channel, filename, f)
+	return err
+}
+
 func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 	allowed := false
 	for _, channel := range allowedChannels {
@@ -305,6 +325,9 @@ func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 	}
 	if strings.HasPrefix(message, "$time") {
 		e = showTime(session, m.ChannelID)
+	}
+	if strings.HasPrefix(message, "$bless") {
+		e = bless(session, m.ChannelID)
 	}
 	if strings.HasPrefix(message, "$spark") {
 		var args []string
