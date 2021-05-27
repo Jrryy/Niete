@@ -42,7 +42,8 @@ func getDatabase() *mongo.Database {
 }
 
 func sendHelp(session *dgo.Session, channel string) error {
-	helpString := "```\n" +
+	// helpString := "```\n" +
+	_ = "```\n" +
 		"You know how this goes:\n" +
 		"\t- $time: Display the current date and time in Japan.\n" +
 		"\t- $spark: Show your stats (or creates your profile if it's your first time).\n" +
@@ -51,8 +52,8 @@ func sendHelp(session *dgo.Session, channel string) error {
 		"\t- $bless: Ask immunity Lily for her blessing before pulling (might and will go wrong).\n" +
 		"\t- $gw <crew_name>: Retrieves past performances of the specified crew in GW.\n" +
 		"```"
-	_, e := session.ChannelMessageSend(channel, helpString)
-	return e
+	// _, e := session.ChannelMessageSend(channel, helpString)
+	return nil
 }
 
 func getTotalPulls(data map[string]interface{}) int32 {
@@ -82,7 +83,8 @@ func sendPlayerData(session *dgo.Session, channel string, data map[string]interf
 	} else {
 		lastBlock = "▉"
 	}
-	playerDataString := fmt.Sprintf(
+	// playerDataString := fmt.Sprintf(
+	_ = fmt.Sprintf(
 		"```\n"+
 			"%s\n"+
 			"Crystals: %d\n"+
@@ -99,17 +101,19 @@ func sendPlayerData(session *dgo.Session, channel string, data map[string]interf
 		strings.Repeat("█", fullBlocks)+lastBlock+strings.Repeat(" ", 99-fullBlocks),
 		percentage,
 	)
-	_, e = session.ChannelMessageSend(channel, playerDataString)
+	// _, e = session.ChannelMessageSend(channel, playerDataString)
 	return
 }
 
 func createPlayerDocument(session *dgo.Session, channel string, discordId string, players *mongo.Collection) error {
 	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
-	_, err := session.ChannelMessageSend(channel, "Profile not found. Creating...")
-	if err != nil {
-		return err
-	}
-	_, err = players.InsertOne(
+	/*
+		_, err := session.ChannelMessageSend(channel, "Profile not found. Creating...")
+		if err != nil {
+			return err
+		}
+	*/
+	_, err := players.InsertOne(
 		ctx,
 		bson.M{"discordId": discordId, "xtals": 0, "tix": 0, "10part": 0},
 	)
@@ -151,8 +155,8 @@ func addQuantity(discordId, field string, quantity int, players *mongo.Collectio
 
 func parseSparkArgs(session *dgo.Session, args []string, channel string) (string, int, error) {
 	if len(args) < 2 {
-		_, err := session.ChannelMessageSend(channel, "Specify correctly the kind of pulls you want to set.")
-		return "", 0, err
+		// _, err := session.ChannelMessageSend(channel, "Specify correctly the kind of pulls you want to set.")
+		return "", 0, nil // err
 	} else {
 		field := ""
 		switch args[1] {
@@ -164,19 +168,21 @@ func parseSparkArgs(session *dgo.Session, args []string, channel string) (string
 			field = "tix"
 		}
 		if field == "" {
-			_, err := session.ChannelMessageSend(
-				channel,
-				"Specify correctly the kind of pulls you want to set.",
-			)
-			return "", 0, err
+			/*
+				_, err := session.ChannelMessageSend(
+					channel,
+					"Specify correctly the kind of pulls you want to set.",
+				)
+			*/
+			return "", 0, nil // err
 		}
 		if len(args) < 3 {
-			_, err := session.ChannelMessageSend(channel, "Specify how many pulls you want to set.")
-			return "", 0, err
+			// _, err := session.ChannelMessageSend(channel, "Specify how many pulls you want to set.")
+			return "", 0, nil
 		}
 		quantity, err := strconv.Atoi(args[2])
 		if err != nil {
-			_, err := session.ChannelMessageSend(channel, "Please input a number.")
+			// _, err := session.ChannelMessageSend(channel, "Please input a number.")
 			return "", 0, err
 		}
 		return field, quantity, nil
@@ -217,7 +223,7 @@ func sparkUpdateHandler(session *dgo.Session, args []string, channel, discordId,
 	if totalBefore/300 < totalPulls/300 {
 		message = message + "\n:confetti_ball: Congratulations! You've saved up a spark! :confetti_ball:"
 	}
-	_, err = session.ChannelMessageSend(channel, message)
+	// _, err = session.ChannelMessageSend(channel, message)
 	return err
 }
 
@@ -228,14 +234,16 @@ func showTime(session *dgo.Session, channel string) error {
 		return err
 	}
 	tzTime := now.In(location)
-	fmtTime := tzTime.Format("Mon Jan _2 2006 15:04:05")
-	_, err = session.ChannelMessageSend(
-		channel,
-		fmt.Sprintf("It is `%s` in Japan right now.", fmtTime),
-	)
-	if err != nil {
-		return err
-	}
+	_ = tzTime.Format("Mon Jan _2 2006 15:04:05")
+	/*
+		_, err = session.ChannelMessageSend(
+			channel,
+			fmt.Sprintf("It is `%s` in Japan right now.", fmtTime),
+		}
+		if err != nil {
+			return err
+		}
+	*/
 	return nil
 }
 
