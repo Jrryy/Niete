@@ -293,6 +293,9 @@ func searchGWOpponent(session *dgo.Session, channel, opponent string) error {
     }
 
     for i, crew := range result {
+        if i >= 5 {
+            break
+        }
         crewMap := crew.(map[string]interface{})
         crewData := crewMap["data"].([]interface{})
         crewId := fmt.Sprintf("%.f", crewMap["id"].(float64))
@@ -300,12 +303,16 @@ func searchGWOpponent(session *dgo.Session, channel, opponent string) error {
         message := "[__Crew's page__](http://game.granbluefantasy.jp/#guild/detail/" + crewId + ")\n```\n"
         for _, gwData := range crewData {
             unpackedData := gwData.(map[string]interface{})
+            points := unpackedData["points"]
+            if points == nil {
+                continue
+            }
             message = message + fmt.Sprintf(
                 "%s - Ranked #%d in GW #%d with %s points\n",
                 unpackedData["name"],
                 int(unpackedData["rank"].(float64)),
                 int(unpackedData["gw_num"].(float64)),
-                intComma(int(unpackedData["points"].(float64))),
+                intComma(int(points.(float64))),
             )
         }
         message = message + "```"
@@ -315,9 +322,6 @@ func searchGWOpponent(session *dgo.Session, channel, opponent string) error {
 
         _, err = session.ChannelMessageSendEmbed(channel, &embeddedMessage)
         time.Sleep(time.Second)
-        if i >= 5 {
-            break
-        }
     }
     return err
 }
