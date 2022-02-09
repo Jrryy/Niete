@@ -9,11 +9,13 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"html"
 	"io/ioutil"
 	"log"
 	"math"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"regexp"
@@ -55,10 +57,10 @@ func sendHelp(session *dgo.Session, channel string) error {
 	return nil
 }
 
-func getTotalPulls(data map[string]interface{}) int32 {
-	xtals := data["xtals"].(int32)
-	tix := data["tix"].(int32)
-	tenPart := data["10part"].(int32)
+func getTotalPulls(data map[string]interface{}) int64 {
+	xtals := data["xtals"].(int64)
+	tix := data["tix"].(int64)
+	tenPart := data["10part"].(int64)
 	return xtals/300 + tix + tenPart*10
 }
 
@@ -93,9 +95,9 @@ func sendPlayerData(session *dgo.Session, channel string, data map[string]interf
 			"[%s] %.2f%%\n"+
 			"```",
 		data["name"].(string),
-		data["xtals"].(int32),
-		data["tix"].(int32),
-		data["10part"].(int32),
+		data["xtals"].(int64),
+		data["tix"].(int64),
+		data["10part"].(int64),
 		totalPulls,
 		strings.Repeat("█", fullBlocks)+lastBlock+strings.Repeat(" ", 99-fullBlocks),
 		percentage,
@@ -197,7 +199,7 @@ func sparkUpdateHandler(session *dgo.Session, args []string, channel, discordId,
 	collection := getDatabase().Collection("players")
 	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
 	result, err := collection.FindOne(ctx, bson.M{"discordId": discordId}).DecodeBytes()
-	var totalBefore int32 = 0
+	var totalBefore int64 = 0
 	err = bson.Unmarshal(result, &playerDataDict)
 	if err != nil {
 		err = createPlayerDocument(session, channel, discordId, collection)
@@ -348,9 +350,9 @@ func translate(session *dgo.Session, channel, message string) error {
 		return err
 	}
 	id := urlRegex.FindStringSubmatch(message)[1]
-	url := fmt.Sprintf("https://api.twitter.com/2/tweets/%s?tweet.fields=lang", id)
+	twitterURL := fmt.Sprintf("https://api.twitter.com/2/tweets/%s?tweet.fields=lang", id)
 	client := http.Client{}
-	request, err := http.NewRequest(http.MethodGet, url, nil)
+	request, err := http.NewRequest(http.MethodGet, twitterURL, nil)
 	if err != nil {
 		return err
 	}
@@ -376,7 +378,7 @@ func translate(session *dgo.Session, channel, message string) error {
 		if err != nil {
 			return err
 		}
-		tweetText = toEraseRegex.ReplaceAllString(tweetText, "")
+		tweetText = url.QueryEscape(toEraseRegex.ReplaceAllString(tweetText, ""))
 		deeplResponse, err := http.Post(
 			"https://api-free.deepl.com/v2/translate",
 			"application/x-www-form-urlencoded",
@@ -396,7 +398,10 @@ func translate(session *dgo.Session, channel, message string) error {
 			return err
 		}
 		err = json.Unmarshal(body, &deeplResponseData)
-		_, err = session.ChannelMessageSend(channel, deeplResponseData["translations"][0]["text"])
+		if err != nil {
+			return err
+		}
+		_, err = session.ChannelMessageSend(channel, html.UnescapeString(deeplResponseData["translations"][0]["text"]))
 	}
 	return err
 }
