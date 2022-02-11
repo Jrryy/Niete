@@ -58,9 +58,21 @@ func sendHelp(session *dgo.Session, channel string) error {
 }
 
 func getTotalPulls(data map[string]interface{}) int64 {
-	xtals := data["xtals"].(int64)
-	tix := data["tix"].(int64)
-	tenPart := data["10part"].(int64)
+	xtals, ok := data["xtals"].(int64)
+	if !ok {
+		xtals32 := data["xtals"].(int32)
+		xtals = int64(xtals32)
+	}
+	tix, ok := data["tix"].(int64)
+	if !ok {
+		tix32 := data["tix"].(int32)
+		tix = int64(tix32)
+	}
+	tenPart, ok := data["10part"].(int64)
+	if !ok {
+		tenPart32 := data["10part"].(int32)
+		tenPart = int64(tenPart32)
+	}
 	return xtals/300 + tix + tenPart*10
 }
 
