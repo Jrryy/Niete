@@ -57,7 +57,7 @@ func sendHelp(session *dgo.Session, channel string) error {
 	return nil
 }
 
-func getTotalPulls(data map[string]interface{}) int64 {
+func getXtalsTixAnd10Parts(data map[string]interface{}) (int64, int64, int64) {
 	xtals, ok := data["xtals"].(int64)
 	if !ok {
 		xtals32 := data["xtals"].(int32)
@@ -73,11 +73,12 @@ func getTotalPulls(data map[string]interface{}) int64 {
 		tenPart32 := data["10part"].(int32)
 		tenPart = int64(tenPart32)
 	}
-	return xtals/300 + tix + tenPart*10
+	return xtals, tix, tenPart
 }
 
 func sendPlayerData(session *dgo.Session, channel string, data map[string]interface{}) (e error) {
-	totalPulls := getTotalPulls(data)
+	xtals, tix, tenPart := getXtalsTixAnd10Parts(data)
+	totalPulls := xtals/300 + tix + tenPart*10
 	var percentage float64 = 0
 	if totalPulls > 0 {
 		percentage = float64(totalPulls) / 3
@@ -107,9 +108,9 @@ func sendPlayerData(session *dgo.Session, channel string, data map[string]interf
 			"[%s] %.2f%%\n"+
 			"```",
 		data["name"].(string),
-		data["xtals"].(int64),
-		data["tix"].(int64),
-		data["10part"].(int64),
+		xtals,
+		tix,
+		tenPart,
 		totalPulls,
 		strings.Repeat("█", fullBlocks)+lastBlock+strings.Repeat(" ", 99-fullBlocks),
 		percentage,
