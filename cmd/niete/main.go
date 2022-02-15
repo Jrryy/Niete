@@ -76,6 +76,11 @@ func getXtalsTixAnd10Parts(data map[string]interface{}) (int64, int64, int64) {
 	return xtals, tix, tenPart
 }
 
+func getTotalPulls(data map[string]interface{}) int64 {
+	xtals, tix, tenPart := getXtalsTixAnd10Parts(data)
+	return xtals/300 + tix + tenPart*10
+}
+
 func sendPlayerData(session *dgo.Session, channel string, data map[string]interface{}) (e error) {
 	xtals, tix, tenPart := getXtalsTixAnd10Parts(data)
 	totalPulls := xtals/300 + tix + tenPart*10
