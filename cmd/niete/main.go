@@ -5,10 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	dgo "github.com/bwmarrin/discordgo"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"html"
 	"io/ioutil"
 	"log"
@@ -23,9 +19,14 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	dgo "github.com/bwmarrin/discordgo"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-var discordToken, allowedChannels, translateUser, twitterToken, deeplKey string
+var discordToken, allowedChannels, translationForbiddenChannels, twitterToken, deeplKey string
 var mongoClient *mongo.Client
 
 func intComma(i int) string {
@@ -431,7 +432,7 @@ func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 	}
 	message := strings.Trim(m.Content, " ")
 	var e error
-	if strings.Contains(message, "twitter.com") && m.Author.ID == translateUser {
+	if strings.Contains(message, "twitter.com") && !strings.Contains(translationForbiddenChannels, m.ChannelID) {
 		e = translate(session, m.ChannelID, message)
 	}
 	if allowed {
@@ -490,14 +491,14 @@ func main() {
 	envVariables := []string{
 		"NIETE_TOKEN",
 		"NIETE_CHANNELS",
-		"NIETE_TRANSLATE",
+		"TRANSLATION_FORBIDDEN_CHANNELS",
 		"TWITTER_TOKEN",
 		"DEEPL_KEY",
 	}
 	variables := []*string{
 		&discordToken,
 		&allowedChannels,
-		&translateUser,
+		&translationForbiddenChannels,
 		&twitterToken,
 		&deeplKey,
 	}
