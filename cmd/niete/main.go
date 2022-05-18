@@ -364,9 +364,13 @@ func bless(session *dgo.Session, channel string) error {
 }
 
 func translate(session *dgo.Session, channel, message string) error {
-	urlRegex, err := regexp.Compile(".*https://(?:www\\.)?twitter\\.com/\\S+/status/(\\d+).*")
+	urlRegex, err := regexp.Compile(".*https://(?:www\\.|mobile\\.)?twitter\\.com/\\S+/status/(\\d+).*")
 	if err != nil {
 		return err
+	}
+	matches := urlRegex.FindStringSubmatch(message)
+	if len(matches) < 2 {
+		return nil
 	}
 	id := urlRegex.FindStringSubmatch(message)[1]
 	twitterURL := fmt.Sprintf("https://api.twitter.com/2/tweets/%s?tweet.fields=lang", id)
@@ -473,7 +477,9 @@ func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 		}
 	}
 	if e != nil {
-		log.Print(e)
+		log.Println(e)
+		log.Println("Error triggered by message:")
+		log.Println(m.Content)
 	}
 }
 
