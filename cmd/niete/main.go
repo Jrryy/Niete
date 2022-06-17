@@ -21,12 +21,15 @@ import (
 	"time"
 
 	dgo "github.com/bwmarrin/discordgo"
+	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/launcher"
+	"github.com/go-rod/rod/lib/proto"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-var discordToken, allowedChannels, translationForbiddenChannels, twitterToken, deeplKey string
+var discordToken, allowedChannels, translationForbiddenChannels, twitterToken, deeplKey, myCrew string
 var mongoClient *mongo.Client
 
 func intComma(i int) string {
@@ -267,6 +270,80 @@ func showTime(session *dgo.Session, channel string) error {
 	return nil
 }
 
+func getLastGWOpponent(page *rod.Page, opponent string) {
+	page.MustElement("#guildid").MustInput(opponent)
+	page.MustElement("#guildsearch").MustClick()
+	page.MustWait(
+		"() => document.getElementsByClassName('guildranktbody')[0].childElementCount > 0 && !document.getElementById('guildrankqueryloading')",
+	)
+
+	wait := page.MustWaitRequestIdle()
+	page.MustElement(".guildranktbody").MustElements("tr")[0].MustElements("button")[0].MustClick()
+	wait()
+}
+
+func getLastGWMyCrew(page *rod.Page) {
+	page.MustElement("#guildid").MustSelectAllText().MustInput(myCrew)
+	page.MustElement("#guildsearch").MustClick()
+	page.MustWait(
+		"() => document.getElementsByClassName('guildranktbody')[0].childElementCount > 0 && !document.getElementById('guildrankqueryloading')",
+	)
+
+	wait := page.MustWaitRequestIdle()
+	page.MustElement(".guildranktbody").MustElements("tr")[0].MustElements("button")[1].MustClick()
+	wait()
+}
+
+func getCharts(opponent string) ([][]byte, error) {
+	path, _ := launcher.LookPath()
+	u := launcher.New().Bin(path).Headless(true).MustLaunch()
+	browser := rod.New().ControlURL(u).MustConnect()
+	defer browser.MustClose()
+
+	page := browser.MustPage("https://info.gbfteamraid.fun/")
+
+	wait := page.MustWaitRequestIdle()
+	page.MustWaitLoad().MustElement("button").MustClick()
+	wait()
+
+	wait = page.MustWaitRequestIdle()
+	page.MustNavigate("https://info.gbfteamraid.fun/web/teamraid").MustWaitLoad()
+	wait()
+	page.MustWaitElementsMoreThan(".teamraidtbody", 1)
+
+	raidId := page.MustElements(".teamraidtbody")[1].MustElement("tr").MustAttribute("teamraidid")
+
+	wait = page.MustWaitRequestIdle()
+	page.MustNavigate(fmt.Sprintf("https://info.gbfteamraid.fun/web/guildrank?teamraidid=%s", *raidId)).MustWaitLoad()
+	wait()
+
+	page.MustElement(".bootstrap-switch-id-daylyPointType").MustClick()
+	go page.EachEvent(func(e *proto.PageJavascriptDialogOpening) {
+		_ = proto.PageHandleJavaScriptDialog{Accept: true, PromptText: ""}.Call(page)
+	})()
+
+	getLastGWOpponent(page, opponent)
+	if myCrew != "" {
+		getLastGWMyCrew(page)
+	}
+
+	canvasArray := page.MustElements("canvas")
+
+	if len(canvasArray) == 1 {
+		return nil, nil
+	}
+
+	canvasBytesArray := [][]byte{}
+
+	canvasBytesArray = append(canvasBytesArray, canvasArray[0].MustScreenshot())
+
+	if len(canvasArray) > 4 {
+		canvasBytesArray = append(canvasBytesArray, canvasArray[1].MustScreenshot())
+	}
+
+	return canvasBytesArray, nil
+}
+
 func searchGWOpponent(session *dgo.Session, channel, opponent string) error {
 	if opponent == "" {
 		_, err := session.ChannelMessageSend(channel, "Please input a crew's name.")
@@ -341,8 +418,42 @@ func searchGWOpponent(session *dgo.Session, channel, opponent string) error {
 		}
 
 		_, err = session.ChannelMessageSendEmbed(channel, &embeddedMessage)
+
+		if err != nil {
+			session.ChannelMessageSend(channel, "Sorry, something went wrong when retrieving the data.")
+			return err
+		}
+
+		retrievingMessage, _ := session.ChannelMessageSend(channel, "Retrieving charts...")
+
+		charts, err := getCharts(crewId)
+
+		session.ChannelMessageDelete(channel, retrievingMessage.ID)
+
+		if charts == nil {
+			session.ChannelMessageSend(channel, "There is no current GW data yet.")
+			return nil
+		}
+
+		if err != nil {
+			session.ChannelMessageSend(channel, "Sorry, something went wrong when retrieving the charts.")
+			return err
+		}
+
+		if len(charts) == 2 {
+			session.ChannelFileSendWithMessage(channel, "Total", "chart.jpg", bytes.NewReader(charts[0]))
+			session.ChannelFileSendWithMessage(channel, "Last round", "chart.jpg", bytes.NewReader(charts[1]))
+		} else {
+			session.ChannelFileSendWithMessage(channel, "Total", "chart.jpg", bytes.NewReader(charts[0]))
+		}
+
+		if err != nil {
+			session.ChannelMessageSend(channel, "Sorry, something went wrong.")
+			return err
+		}
 		time.Sleep(time.Second)
 	}
+
 	return err
 }
 
@@ -514,6 +625,10 @@ func main() {
 			fmt.Println(e)
 			return
 		}
+	}
+	e := getToken(&myCrew, "MY_CREW")
+	if e != nil {
+		myCrew = ""
 	}
 	session, e := dgo.New("Bot " + discordToken)
 	if e != nil {
