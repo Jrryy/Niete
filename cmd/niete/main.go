@@ -501,13 +501,13 @@ func translate(session *dgo.Session, channel, message string) error {
 	if err != nil {
 		return err
 	}
-	tweetResponseData := make(map[string]map[string]string)
+	tweetResponseData := make(map[string]map[string]interface{})
 	err = json.Unmarshal(body, &tweetResponseData)
 	if err != nil {
 		return err
 	}
-	if tweetResponseData["data"]["lang"] == "ja" {
-		tweetText := tweetResponseData["data"]["text"]
+	if tweetResponseData["data"]["lang"].(string) == "ja" {
+		tweetText := tweetResponseData["data"]["text"].(string)
 		toEraseRegex, err := regexp.Compile("https://t\\.co/[0-9a-zA-Z]+")
 		if err != nil {
 			return err
