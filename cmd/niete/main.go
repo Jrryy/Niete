@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"regexp"
 	"strconv"
@@ -29,8 +30,14 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-var discordToken, allowedChannels, translationForbiddenChannels, twitterToken, deeplKey, myCrew string
-var mongoClient *mongo.Client
+var (
+	discordToken, allowedChannels, translationForbiddenChannels, twitterToken, deeplKey, myCrew, ngrokPath, mcDirPath string
+	mongoClient                                                                                                       *mongo.Client
+	ngrokProcess                                                                                                      *os.Process
+	logger                                                                                                            log.Logger
+	mcURLMessage                                                                                                      *dgo.Message
+	mcCmd                                                                                                             *exec.Cmd
+)
 
 func intComma(i int) string {
 	if i < 0 {
@@ -540,6 +547,94 @@ func translate(session *dgo.Session, channel, message string) error {
 	return err
 }
 
+func startHC(session *dgo.Session, channel string) error {
+	// Run ngrok first
+	if ngrokProcess != nil {
+		session.ChannelMessageSend(channel, "The server is already up")
+		return nil
+	}
+	cmd := exec.Command(ngrokPath, "tcp", "25565")
+	err := cmd.Start()
+	if err != nil {
+		session.ChannelMessageSend(channel, "Something went wrong with the server startup. Ping my creator.")
+		return err
+	}
+	ngrokProcess = cmd.Process
+	time.Sleep(time.Second)
+	resp, err := http.Get("http://localhost:4040/api/tunnels")
+	if err != nil {
+		session.ChannelMessageSend(channel, "Something went wrong with the server startup. Ping my creator.")
+		return err
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		session.ChannelMessageSend(channel, "Something went wrong with the server startup. Ping my creator.")
+		return err
+	}
+	responseData := make(map[string]interface{})
+	err = json.Unmarshal(body, &responseData)
+	if err != nil {
+		session.ChannelMessageSend(channel, "Something went wrong with the server startup. Ping my creator.")
+		return err
+	}
+	// Then run the MC server
+	if mcCmd != nil {
+		session.ChannelMessageSend(channel, "The server is already up")
+		return nil
+	}
+	mcCmd = exec.Command("python3", "quick.py")
+	mcCmd.Dir = mcDirPath
+	mcCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// stdout, stdoutErr := mcCmd.StdoutPipe()
+	// stderr, stderrErr := mcCmd.StderrPipe()
+	err = mcCmd.Start()
+	if err != nil {
+		session.ChannelMessageSend(channel, "Something went wrong with the server startup. Ping my creator.")
+		ngrokProcess.Kill()
+		return err
+	}
+	serverURL := responseData["tunnels"].([]interface{})[0].(map[string]interface{})["public_url"].(string)
+	serverURL = strings.TrimPrefix(serverURL, "tcp://")
+	mcURLMessage, err = session.ChannelMessageSend(channel, fmt.Sprintf("`%s`", serverURL))
+	/*
+		buff := make([]byte, 1000)
+		for stdoutErr == nil {
+			_, stdoutErr = stdout.Read(buff)
+			fmt.Println(string(buff[:]))
+		}
+	*/
+	return err
+}
+
+func stopHC(session *dgo.Session, channel string) error {
+	if ngrokProcess == nil {
+		session.ChannelMessageSend(channel, "There is no server running")
+		return nil
+	}
+	message, _ := session.ChannelMessageSend(channel, "Stopping the server...")
+	err := ngrokProcess.Kill()
+	if err != nil {
+		session.ChannelMessageSend(channel, "Something went wrong stopping the server. Ping my creator.")
+		return err
+	}
+	ngrokProcess.Wait()
+	ngrokProcess = nil
+	if mcCmd == nil {
+		session.ChannelMessageSend(channel, "There is no server running")
+		return nil
+	}
+	err = syscall.Kill(-mcCmd.Process.Pid, syscall.SIGINT)
+	if err != nil {
+		session.ChannelMessageSend(channel, "Something went wrong stopping the server. Ping my creator.")
+		return err
+	}
+	mcCmd.Process.Wait()
+	mcCmd = nil
+	session.ChannelMessageDelete(mcURLMessage.ChannelID, mcURLMessage.ID)
+	session.ChannelMessageEdit(message.ChannelID, message.ID, "Server stopped.")
+	return err
+}
+
 func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 	allowed := strings.Contains(allowedChannels, m.ChannelID)
 	if m.Author.ID == session.State.User.ID {
@@ -551,6 +646,12 @@ func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 		e = translate(session, m.ChannelID, message)
 	}
 	if allowed {
+		if strings.HasPrefix(message, "$starthc") {
+			e = startHC(session, m.ChannelID)
+		}
+		if strings.HasPrefix(message, "$stophc") {
+			e = stopHC(session, m.ChannelID)
+		}
 		if strings.HasPrefix(message, "$help") {
 			e = sendHelp(session, m.ChannelID)
 		}
@@ -578,7 +679,7 @@ func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 				case "set", "add":
 					e = sparkUpdateHandler(session, args, m.ChannelID, m.Author.ID, args[0])
 				default:
-					log.Printf("The command '%s' was invalid ", m.Content)
+					logger.Printf("The command '%s' was invalid ", m.Content)
 				}
 			}
 		}
@@ -588,9 +689,9 @@ func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 		}
 	}
 	if e != nil {
-		log.Println(e)
-		log.Println("Error triggered by message:")
-		log.Println(m.Content)
+		logger.Println(e)
+		logger.Println("Error triggered by message:")
+		logger.Println(m.Content)
 	}
 }
 
@@ -611,6 +712,8 @@ func main() {
 		"TRANSLATION_FORBIDDEN_CHANNELS",
 		"TWITTER_TOKEN",
 		"DEEPL_KEY",
+		"NGROK_PATH",
+		"MC_DIR_PATH",
 	}
 	variables := []*string{
 		&discordToken,
@@ -618,6 +721,8 @@ func main() {
 		&translationForbiddenChannels,
 		&twitterToken,
 		&deeplKey,
+		&ngrokPath,
+		&mcDirPath,
 	}
 	for i := range envVariables {
 		e := getToken(variables[i], envVariables[i])
@@ -648,9 +753,19 @@ func main() {
 	// Open a websocket connection to Discord and begin listening.
 	e = session.Open()
 	if e != nil {
-		fmt.Println("error opening connection, ", e)
+		fmt.Println("Error opening connection, ", e)
 		return
 	}
+
+	logFile, e := os.OpenFile("niete.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, os.ModePerm)
+	if e != nil {
+		fmt.Println("Error creating log file, ", e)
+		return
+	}
+
+	logger = *log.Default()
+	logger.SetOutput(logFile)
+	defer logFile.Close()
 
 	// Wait here until CTRL-C or other term signal is received.
 	fmt.Println("Bot is now running.  Press CTRL-C to exit.")
