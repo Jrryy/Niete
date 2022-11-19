@@ -560,7 +560,7 @@ func startHC(session *dgo.Session, channel string) error {
 		return err
 	}
 	ngrokProcess = cmd.Process
-	time.Sleep(time.Second)
+	time.Sleep(2 * time.Second)
 	resp, err := http.Get("http://localhost:4040/api/tunnels")
 	if err != nil {
 		session.ChannelMessageSend(channel, "Something went wrong with the server startup. Ping my creator.")
