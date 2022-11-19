@@ -553,7 +553,7 @@ func startHC(session *dgo.Session, channel string) error {
 		session.ChannelMessageSend(channel, "The server is already up")
 		return nil
 	}
-	cmd := exec.Command(ngrokPath, "tcp", "25565")
+	cmd := exec.Command(ngrokPath, "tcp", "25565", "--region", "eu")
 	err := cmd.Start()
 	if err != nil {
 		session.ChannelMessageSend(channel, "Something went wrong with the server startup. Ping my creator.")
