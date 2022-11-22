@@ -68,7 +68,7 @@ func sendHelp(session *dgo.Session, channel string) error {
 	return nil
 }
 
-func getXtalsTixAnd10Parts(data map[string]interface{}) (int64, int64, int64) {
+func getXtalsTixAnd10Parts(data map[string]any) (int64, int64, int64) {
 	xtals, ok := data["xtals"].(int64)
 	if !ok {
 		xtals32 := data["xtals"].(int32)
@@ -87,12 +87,12 @@ func getXtalsTixAnd10Parts(data map[string]interface{}) (int64, int64, int64) {
 	return xtals, tix, tenPart
 }
 
-func getTotalPulls(data map[string]interface{}) int64 {
+func getTotalPulls(data map[string]any) int64 {
 	xtals, tix, tenPart := getXtalsTixAnd10Parts(data)
 	return xtals/300 + tix + tenPart*10
 }
 
-func sendPlayerData(session *dgo.Session, channel string, data map[string]interface{}) (e error) {
+func sendPlayerData(session *dgo.Session, channel string, data map[string]any) (e error) {
 	xtals, tix, tenPart := getXtalsTixAnd10Parts(data)
 	totalPulls := xtals/300 + tix + tenPart*10
 	var percentage float64 = 0
@@ -151,7 +151,7 @@ func createPlayerDocument(session *dgo.Session, channel string, discordId string
 }
 
 func createOrRetrievePlayerData(session *dgo.Session, channel string, discordId string, name string) error {
-	var playerDataDict map[string]interface{}
+	var playerDataDict map[string]any
 	collection := getDatabase().Collection("players")
 	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
 	result, err := collection.FindOne(ctx, bson.M{"discordId": discordId}).DecodeBytes()
@@ -224,7 +224,7 @@ func sparkUpdateHandler(session *dgo.Session, args []string, channel, discordId,
 	if err != nil {
 		return err
 	}
-	var playerDataDict map[string]interface{}
+	var playerDataDict map[string]any
 	collection := getDatabase().Collection("players")
 	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
 	result, err := collection.FindOne(ctx, bson.M{"discordId": discordId}).DecodeBytes()
@@ -376,9 +376,9 @@ func searchGWOpponent(session *dgo.Session, channel, opponent string) error {
 		return err
 	}
 
-	var data map[string]interface{}
+	var data map[string]any
 	err = json.Unmarshal(body, &data)
-	result := data["result"].([]interface{})
+	result := data["result"].([]any)
 	if len(result) == 0 {
 		_, err = session.ChannelMessageSend(channel, "Crew not found.")
 		return err
@@ -400,13 +400,13 @@ func searchGWOpponent(session *dgo.Session, channel, opponent string) error {
 		if i >= 5 {
 			break
 		}
-		crewMap := crew.(map[string]interface{})
-		crewData := crewMap["data"].([]interface{})
+		crewMap := crew.(map[string]any)
+		crewData := crewMap["data"].([]any)
 		crewId := fmt.Sprintf("%.f", crewMap["id"].(float64))
 
 		message := "[__Crew's page__](http://game.granbluefantasy.jp/#guild/detail/" + crewId + ")\n```\n"
 		for _, gwData := range crewData {
-			unpackedData := gwData.(map[string]interface{})
+			unpackedData := gwData.(map[string]any)
 			points := unpackedData["points"]
 			if points == nil {
 				continue
@@ -508,7 +508,7 @@ func translate(session *dgo.Session, channel, message string) error {
 	if err != nil {
 		return err
 	}
-	tweetResponseData := make(map[string]map[string]interface{})
+	tweetResponseData := make(map[string]map[string]any)
 	err = json.Unmarshal(body, &tweetResponseData)
 	if err != nil {
 		return err
@@ -571,7 +571,7 @@ func startHC(session *dgo.Session, channel string) error {
 		session.ChannelMessageSend(channel, "Something went wrong with the server startup. Ping my creator.")
 		return err
 	}
-	responseData := make(map[string]interface{})
+	responseData := make(map[string]any)
 	err = json.Unmarshal(body, &responseData)
 	if err != nil {
 		session.ChannelMessageSend(channel, "Something went wrong with the server startup. Ping my creator.")
@@ -593,7 +593,7 @@ func startHC(session *dgo.Session, channel string) error {
 		ngrokProcess.Kill()
 		return err
 	}
-	serverURL := responseData["tunnels"].([]interface{})[0].(map[string]interface{})["public_url"].(string)
+	serverURL := responseData["tunnels"].([]any)[0].(map[string]any)["public_url"].(string)
 	serverURL = strings.TrimPrefix(serverURL, "tcp://")
 	mcURLMessage, err = session.ChannelMessageSend(channel, fmt.Sprintf("`%s`", serverURL))
 	/*
@@ -635,6 +635,43 @@ func stopHC(session *dgo.Session, channel string) error {
 	return err
 }
 
+func postSuiseiPic(session *dgo.Session, channel string) error {
+	resp, err := http.Get("https://safebooru.org/index.php?page=dapi&s=post&q=index&tags=hoshimachi_suisei&limit=0&pid=0")
+	if err != nil {
+		return err
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	xmlString := string(body)
+	re, _ := regexp.Compile(`.*count="(\d+)".*`)
+	matches := re.FindStringSubmatch(xmlString)
+	if len(matches) < 2 {
+		return fmt.Errorf("the safebooru xml didn't contain any 'count'. Is this okay?")
+	}
+	posts := matches[1]
+	postsInt, _ := strconv.ParseInt(posts, 10, 64)
+	chosenPost := rand.Intn(int(postsInt))
+	resp, err = http.Get(fmt.Sprintf("https://safebooru.org/index.php?page=dapi&s=post&q=index&tags=hoshimachi_suisei&limit=1&pid=%d", chosenPost))
+	if err != nil {
+		return err
+	}
+	body, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	xmlString = string(body)
+	re, _ = regexp.Compile(`.*file_url="(.*)" parent_id.*`)
+	matches = re.FindStringSubmatch(xmlString)
+	if len(matches) < 2 {
+		return fmt.Errorf("the safebooru xml didn't contain any 'count'. Is this okay?")
+	}
+	fileURL := matches[1]
+	_, err = session.ChannelMessageSend(channel, fileURL)
+	return err
+}
+
 func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 	allowed := strings.Contains(allowedChannels, m.ChannelID)
 	if m.Author.ID == session.State.User.ID {
@@ -644,6 +681,9 @@ func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 	var e error
 	if strings.Contains(message, "twitter.com") && !strings.Contains(translationForbiddenChannels, m.ChannelID) {
 		e = translate(session, m.ChannelID, message)
+	}
+	if strings.HasPrefix(message, "$suisex") {
+		e = postSuiseiPic(session, m.ChannelID)
 	}
 	if allowed {
 		if strings.HasPrefix(message, "$starthc") {
