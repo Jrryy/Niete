@@ -672,6 +672,11 @@ func postSuiseiPic(session *dgo.Session, channel string) error {
 	return err
 }
 
+func postSusPeko(session *dgo.Session, channel string) error {
+	_, err := session.ChannelMessageSend(channel, "https://www.youtube.com/watch?v=f8qd_LwVUhc")
+	return err
+}
+
 func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 	allowed := strings.Contains(allowedChannels, m.ChannelID)
 	if m.Author.ID == session.State.User.ID {
@@ -684,6 +689,9 @@ func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 	}
 	if strings.HasPrefix(message, "$suisex") {
 		e = postSuiseiPic(session, m.ChannelID)
+	}
+	if strings.HasPrefix(message, "$suspeko") {
+		e = postSusPeko(session, m.ChannelID)
 	}
 	if allowed {
 		if strings.HasPrefix(message, "$starthc") {
