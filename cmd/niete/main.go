@@ -677,6 +677,11 @@ func postSusPeko(session *dgo.Session, channel string) error {
 	return err
 }
 
+func postCunny(session *dgo.Session, channel string) error {
+	_, err := session.ChannelMessageSend(channel, "https://youtu.be/3zIPp95GC3E")
+	return err
+}
+
 func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 	allowed := strings.Contains(allowedChannels, m.ChannelID)
 	if m.Author.ID == session.State.User.ID {
@@ -692,6 +697,9 @@ func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 	}
 	if strings.HasPrefix(message, "$suspeko") {
 		e = postSusPeko(session, m.ChannelID)
+	}
+	if strings.HasPrefix(message, "$cunny") {
+		e = postCunny(session, m.ChannelID)
 	}
 	if allowed {
 		if strings.HasPrefix(message, "$starthc") {
