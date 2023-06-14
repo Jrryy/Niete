@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
-	"io/ioutil"
+	"io"
 	"log"
 	"math"
 	"math/rand"
@@ -31,12 +31,12 @@ import (
 )
 
 var (
-	discordToken, allowedChannels, translationForbiddenChannels, twitterToken, deeplKey, myCrew, ngrokPath, mcDirPath string
-	mongoClient                                                                                                       *mongo.Client
-	ngrokProcess                                                                                                      *os.Process
-	logger                                                                                                            log.Logger
-	mcURLMessage                                                                                                      *dgo.Message
-	mcCmd                                                                                                             *exec.Cmd
+	discordToken, allowedChannels, translationForbiddenChannels, deeplKey, myCrew, ngrokPath, mcDirPath string
+	mongoClient                                                                                         *mongo.Client
+	ngrokProcess                                                                                        *os.Process
+	logger                                                                                              log.Logger
+	mcURLMessage                                                                                        *dgo.Message
+	mcCmd                                                                                               *exec.Cmd
 )
 
 func intComma(i int) string {
@@ -370,7 +370,7 @@ func searchGWOpponent(session *dgo.Session, channel, opponent string) error {
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		_, _ = session.ChannelMessageSend(channel, "Sorry, something went wrong.")
 		return err
@@ -448,10 +448,28 @@ func searchGWOpponent(session *dgo.Session, channel, opponent string) error {
 		}
 
 		if len(charts) == 2 {
-			session.ChannelFileSendWithMessage(channel, "Total", "chart.jpg", bytes.NewReader(charts[0]))
-			session.ChannelFileSendWithMessage(channel, "Last round", "chart.jpg", bytes.NewReader(charts[1]))
+			session.ChannelMessageSendComplex(
+				channel,
+				&dgo.MessageSend{
+					File:    &dgo.File{Name: "chart.jpg", Reader: bytes.NewReader(charts[0])},
+					Content: "Total",
+				},
+			)
+			_, err = session.ChannelMessageSendComplex(
+				channel,
+				&dgo.MessageSend{
+					File:    &dgo.File{Name: "chart.jpg", Reader: bytes.NewReader(charts[1])},
+					Content: "Last round",
+				},
+			)
 		} else {
-			session.ChannelFileSendWithMessage(channel, "Total", "chart.jpg", bytes.NewReader(charts[0]))
+			_, err = session.ChannelMessageSendComplex(
+				channel,
+				&dgo.MessageSend{
+					File:    &dgo.File{Name: "chart.jpg", Reader: bytes.NewReader(charts[0])},
+					Content: "Total",
+				},
+			)
 		}
 
 		if err != nil {
@@ -482,39 +500,32 @@ func bless(session *dgo.Session, channel string) error {
 }
 
 func translate(session *dgo.Session, channel, message string) error {
-	urlRegex, err := regexp.Compile(".*https://(?:www\\.|mobile\\.)?twitter\\.com/\\S+/status/(\\d+).*")
+	urlRegex, err := regexp.Compile("https://(?:www\\.|mobile\\.)?twitter\\.com/\\S+/status/\\d+")
 	if err != nil {
 		return err
 	}
-	matches := urlRegex.FindStringSubmatch(message)
-	if len(matches) < 2 {
-		return nil
-	}
-	id := urlRegex.FindStringSubmatch(message)[1]
-	twitterURL := fmt.Sprintf("https://api.twitter.com/2/tweets/%s?tweet.fields=lang", id)
-	client := http.Client{}
-	request, err := http.NewRequest(http.MethodGet, twitterURL, nil)
-	if err != nil {
-		return err
-	}
-	request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", twitterToken))
-	twitterResponse, err := client.Do(request)
-	if err != nil {
-		return err
-	}
-	defer twitterResponse.Body.Close()
+	urls := urlRegex.FindAllString(message, -1)
+	for _, URL := range urls {
+		path, _ := launcher.LookPath()
+		u := launcher.New().Bin(path).Headless(true).MustLaunch()
+		browser := rod.New().ControlURL(u).MustConnect()
+		defer browser.MustClose()
 
-	body, err := ioutil.ReadAll(twitterResponse.Body)
-	if err != nil {
-		return err
-	}
-	tweetResponseData := make(map[string]map[string]any)
-	err = json.Unmarshal(body, &tweetResponseData)
-	if err != nil {
-		return err
-	}
-	if tweetResponseData["data"]["lang"].(string) == "ja" {
-		tweetText := tweetResponseData["data"]["text"].(string)
+		page := browser.MustPage(URL)
+
+		//wait := page.MustWaitRequestIdle()
+		tweetTextElement := page.MustWaitLoad().MustElement("[data-testid=tweetText]")
+		//wait()
+		language, _ := tweetTextElement.Attribute("lang")
+		if *language != "ja" {
+			continue
+		}
+
+		tweetText, err := tweetTextElement.Text()
+		if err != nil {
+			return err
+		}
+		println(tweetText)
 		toEraseRegex, err := regexp.Compile("https://t\\.co/[0-9a-zA-Z]+")
 		if err != nil {
 			return err
@@ -534,7 +545,7 @@ func translate(session *dgo.Session, channel, message string) error {
 		}
 		defer deeplResponse.Body.Close()
 		deeplResponseData := make(map[string][]map[string]string)
-		body, err := ioutil.ReadAll(deeplResponse.Body)
+		body, err := io.ReadAll(deeplResponse.Body)
 		if err != nil {
 			return err
 		}
@@ -543,8 +554,11 @@ func translate(session *dgo.Session, channel, message string) error {
 			return err
 		}
 		_, err = session.ChannelMessageSend(channel, html.UnescapeString(deeplResponseData["translations"][0]["text"]))
+		if err != nil {
+			return err
+		}
 	}
-	return err
+	return nil
 }
 
 func startHC(session *dgo.Session, channel string) error {
@@ -566,7 +580,7 @@ func startHC(session *dgo.Session, channel string) error {
 		session.ChannelMessageSend(channel, "Something went wrong with the server startup. Ping my creator.")
 		return err
 	}
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		session.ChannelMessageSend(channel, "Something went wrong with the server startup. Ping my creator.")
 		return err
@@ -640,7 +654,7 @@ func postSuiseiPic(session *dgo.Session, channel string) error {
 	if err != nil {
 		return err
 	}
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
@@ -657,7 +671,7 @@ func postSuiseiPic(session *dgo.Session, channel string) error {
 	if err != nil {
 		return err
 	}
-	body, err = ioutil.ReadAll(resp.Body)
+	body, err = io.ReadAll(resp.Body)
 	if err != nil {
 		return err
 	}
@@ -766,7 +780,6 @@ func main() {
 		"NIETE_TOKEN",
 		"NIETE_CHANNELS",
 		"TRANSLATION_FORBIDDEN_CHANNELS",
-		"TWITTER_TOKEN",
 		"DEEPL_KEY",
 		"NGROK_PATH",
 		"MC_DIR_PATH",
@@ -775,7 +788,6 @@ func main() {
 		&discordToken,
 		&allowedChannels,
 		&translationForbiddenChannels,
-		&twitterToken,
 		&deeplKey,
 		&ngrokPath,
 		&mcDirPath,
