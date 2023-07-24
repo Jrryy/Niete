@@ -500,7 +500,7 @@ func bless(session *dgo.Session, channel string) error {
 }
 
 func translate(session *dgo.Session, channel, message string) error {
-	urlRegex, err := regexp.Compile("https://(?:www\\.|mobile\\.)?twitter\\.com/\\S+/status/\\d+")
+	urlRegex, err := regexp.Compile(`https://(?:www\.|mobile\.)?twitter\.com/\S+/status/\d+`)
 	if err != nil {
 		return err
 	}
@@ -525,8 +525,8 @@ func translate(session *dgo.Session, channel, message string) error {
 		if err != nil {
 			return err
 		}
-		println(tweetText)
-		toEraseRegex, err := regexp.Compile("https://t\\.co/[0-9a-zA-Z]+")
+
+		toEraseRegex, err := regexp.Compile(`https://t\.co/[0-9a-zA-Z]+`)
 		if err != nil {
 			return err
 		}
@@ -553,7 +553,22 @@ func translate(session *dgo.Session, channel, message string) error {
 		if err != nil {
 			return err
 		}
-		_, err = session.ChannelMessageSend(channel, html.UnescapeString(deeplResponseData["translations"][0]["text"]))
+
+		translatedTweet := html.UnescapeString(deeplResponseData["translations"][0]["text"])
+
+		embeddedURLsRegex, err := regexp.Compile(`http(?:s)?:\/\/\S+`)
+		if err != nil {
+			return err
+		}
+
+		embeddedURLs := embeddedURLsRegex.FindAllString(translatedTweet, 10)
+
+		for _, embeddedURL := range embeddedURLs {
+			newURL := fmt.Sprintf("<%s>", strings.TrimSuffix(embeddedURL, "..."))
+			translatedTweet = strings.Replace(translatedTweet, embeddedURL, newURL, 1)
+		}
+
+		_, err = session.ChannelMessageSend(channel, translatedTweet)
 		if err != nil {
 			return err
 		}
