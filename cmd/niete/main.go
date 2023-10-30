@@ -500,7 +500,7 @@ func bless(session *dgo.Session, channel string) error {
 }
 
 func translate(session *dgo.Session, channel, message string) error {
-	urlRegex, err := regexp.Compile(`https://(?:www\.|mobile\.)?twitter\.com/\S+/status/\d+`)
+	urlRegex, err := regexp.Compile(`https://(?:www\.|mobile\.)?(?:twitter|x)\.com/\S+/status/\d+`)
 	if err != nil {
 		return err
 	}
@@ -718,7 +718,7 @@ func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 	}
 	message := strings.Trim(m.Content, " ")
 	var e error
-	if strings.Contains(message, "twitter.com") && !strings.Contains(translationForbiddenChannels, m.ChannelID) {
+	if strings.Contains(message, "twitter.com") || strings.Contains(message, "x.com") && !strings.Contains(translationForbiddenChannels, m.ChannelID) {
 		e = translate(session, m.ChannelID, message)
 	}
 	if strings.HasPrefix(message, "$suisex") {
