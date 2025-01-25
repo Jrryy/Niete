@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
+	"github.com/go-rod/rod/lib/proto"
 	"io"
 	"log"
 	"math"
@@ -24,10 +24,10 @@ import (
 	dgo "github.com/bwmarrin/discordgo"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
-	"github.com/go-rod/rod/lib/proto"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"golang.org/x/net/html"
 )
 
 var (
@@ -277,78 +277,59 @@ func showTime(session *dgo.Session, channel string) error {
 	return nil
 }
 
-func getLastGWOpponent(page *rod.Page, opponent string) {
-	page.MustElement("#guildid").MustInput(opponent)
-	page.MustElement("#guildsearch").MustClick()
-	page.MustWait(
-		"() => document.getElementsByClassName('guildranktbody')[0].childElementCount > 0 && !document.getElementById('guildrankqueryloading')",
-	)
+func getLastRoundsPerformance(session *dgo.Session, channel, crewId string) ([][]string, error) {
+	resp, err := http.Get("https://gbfdata.com/en/guild/" + crewId)
 
-	wait := page.MustWaitRequestIdle()
-	page.MustElement(".guildranktbody").MustElements("tr")[0].MustElements("button")[0].MustClick()
-	wait()
-}
-
-func getLastGWMyCrew(page *rod.Page) {
-	page.MustElement("#guildid").MustSelectAllText().MustInput(myCrew)
-	page.MustElement("#guildsearch").MustClick()
-	page.MustWait(
-		"() => document.getElementsByClassName('guildranktbody')[0].childElementCount > 0 && !document.getElementById('guildrankqueryloading')",
-	)
-
-	wait := page.MustWaitRequestIdle()
-	page.MustElement(".guildranktbody").MustElements("tr")[0].MustElements("button")[1].MustClick()
-	wait()
-}
-
-func getCharts(opponent string) ([][]byte, error) {
-	path, _ := launcher.LookPath()
-	u := launcher.New().Bin(path).Headless(true).MustLaunch()
-	browser := rod.New().ControlURL(u).MustConnect()
-	defer browser.MustClose()
-
-	page := browser.MustPage("https://info.gbfteamraid.fun/")
-
-	wait := page.MustWaitRequestIdle()
-	page.MustWaitLoad().MustElement("button").MustClick()
-	wait()
-
-	wait = page.MustWaitRequestIdle()
-	page.MustNavigate("https://info.gbfteamraid.fun/web/teamraid").MustWaitLoad()
-	wait()
-	page.MustWaitElementsMoreThan(".teamraidtbody", 1)
-
-	raidId := page.MustElements(".teamraidtbody")[1].MustElement("tr").MustAttribute("teamraidid")
-
-	wait = page.MustWaitRequestIdle()
-	page.MustNavigate(fmt.Sprintf("https://info.gbfteamraid.fun/web/guildrank?teamraidid=%s", *raidId)).MustWaitLoad()
-	wait()
-
-	page.MustElement(".bootstrap-switch-id-daylyPointType").MustClick()
-	go page.EachEvent(func(e *proto.PageJavascriptDialogOpening) {
-		_ = proto.PageHandleJavaScriptDialog{Accept: true, PromptText: ""}.Call(page)
-	})()
-
-	getLastGWOpponent(page, opponent)
-	if myCrew != "" {
-		getLastGWMyCrew(page)
+	if err != nil {
+		return nil, err
 	}
 
-	canvasArray := page.MustElements("canvas")
+	defer resp.Body.Close()
 
-	if len(canvasArray) == 1 {
-		return nil, nil
+	body, err := io.ReadAll(resp.Body)
+
+	if err != nil {
+		return nil, err
 	}
 
-	canvasBytesArray := [][]byte{}
-
-	canvasBytesArray = append(canvasBytesArray, canvasArray[0].MustScreenshot())
-
-	if len(canvasArray) > 4 {
-		canvasBytesArray = append(canvasBytesArray, canvasArray[1].MustScreenshot())
+	node, err := html.Parse(bytes.NewReader(body))
+	if err != nil {
+		return nil, err
 	}
 
-	return canvasBytesArray, nil
+	var tableNode *html.Node
+	tableNode = node.
+		FirstChild.NextSibling. // <html>
+		FirstChild. //   <head>
+		NextSibling.NextSibling. //   <body>
+		FirstChild.NextSibling. //     <header>
+		NextSibling.NextSibling. //     <div>
+		FirstChild.NextSibling. //       <div>
+		FirstChild.NextSibling. //         <div>
+		NextSibling.NextSibling. //         <nav>
+		NextSibling.NextSibling. //         <table>
+		FirstChild.NextSibling. //           <thead>
+		NextSibling.NextSibling //           <tbody>
+
+	roundRow := tableNode.FirstChild.NextSibling
+	lastRound := tableNode.FirstChild.NextSibling.FirstChild.NextSibling.FirstChild.Data
+	rounds := make([][]string, 0)
+
+	for {
+		roundData := roundRow.FirstChild
+		roundNumber := roundData.NextSibling
+		if lastRound != roundNumber.FirstChild.Data {
+			break
+		}
+		date := roundNumber.NextSibling.NextSibling.NextSibling.NextSibling
+		rank := date.NextSibling.NextSibling.NextSibling.NextSibling
+		dailyHonors := rank.NextSibling.NextSibling.NextSibling.NextSibling
+		totalHonors := dailyHonors.NextSibling.NextSibling
+		rounds = append(rounds, []string{date.FirstChild.Data, rank.FirstChild.Data, dailyHonors.FirstChild.Data, totalHonors.FirstChild.Data})
+		roundRow = roundRow.NextSibling.NextSibling
+	}
+
+	return rounds, err
 }
 
 func searchGWOpponent(session *dgo.Session, channel, opponent string) error {
@@ -431,55 +412,62 @@ func searchGWOpponent(session *dgo.Session, channel, opponent string) error {
 			return err
 		}
 
-		retrievingMessage, _ := session.ChannelMessageSend(channel, "Retrieving charts...")
-
-		charts, err := getCharts(crewId)
-
-		session.ChannelMessageDelete(channel, retrievingMessage.ID)
-
-		if charts == nil {
-			session.ChannelMessageSend(channel, "There is no current GW data yet.")
-			return nil
-		}
+		rounds, err := getLastRoundsPerformance(session, channel, crewId)
 
 		if err != nil {
-			session.ChannelMessageSend(channel, "Sorry, something went wrong when retrieving the charts.")
-			return err
+			session.ChannelMessageSend(channel, "Could not retrieve last rounds performance.")
+			continue
 		}
 
-		if len(charts) == 2 {
-			session.ChannelMessageSendComplex(
-				channel,
-				&dgo.MessageSend{
-					File:    &dgo.File{Name: "chart.jpg", Reader: bytes.NewReader(charts[0])},
-					Content: "Total",
-				},
-			)
-			_, err = session.ChannelMessageSendComplex(
-				channel,
-				&dgo.MessageSend{
-					File:    &dgo.File{Name: "chart.jpg", Reader: bytes.NewReader(charts[1])},
-					Content: "Last round",
-				},
-			)
-		} else {
-			_, err = session.ChannelMessageSendComplex(
-				channel,
-				&dgo.MessageSend{
-					File:    &dgo.File{Name: "chart.jpg", Reader: bytes.NewReader(charts[0])},
-					Content: "Total",
-				},
-			)
+		message = "```\nDate\t\t\tRank\tDaily Honors      Total Honors\n"
+		for _, round := range rounds {
+			message += round[0] + "\t" + round[1] + strings.Repeat(" ", 8-len(round[1])) + round[2] + strings.Repeat(" ", 18-len(round[2])) + round[3] + "\n"
 		}
+		message += "```\n"
+
+		embedMessage := dgo.MessageEmbed{Description: message, Title: "Crew's performance"}
+		_, err = session.ChannelMessageSendEmbed(channel, &embedMessage)
+
+		myRounds, err := getLastRoundsPerformance(session, channel, myCrew)
 
 		if err != nil {
-			session.ChannelMessageSend(channel, "Sorry, something went wrong.")
-			return err
+			session.ChannelMessageSend(channel, "Could not retrieve last rounds performance for our crew.")
+			continue
 		}
+
+		message = "```\nDate\t\t\tRank\tDaily Honors      Total Honors\n"
+		for n, round := range myRounds {
+			opponentRound := rounds[n]
+			opponentRank, _ := strconv.ParseInt(opponentRound[1], 10, 64)
+			opponentDaily, _ := strconv.ParseInt(strings.ReplaceAll(opponentRound[2], ",", ""), 10, 64)
+			opponentTotal, _ := strconv.ParseInt(strings.ReplaceAll(opponentRound[3], ",", ""), 10, 64)
+			ourRank, _ := strconv.ParseInt(round[1], 10, 64)
+			ourDaily, _ := strconv.ParseInt(strings.ReplaceAll(round[2], ",", ""), 10, 64)
+			ourTotal, _ := strconv.ParseInt(strings.ReplaceAll(round[3], ",", ""), 10, 64)
+			rankDifference := ourRank - opponentRank
+			rankDifferenceString := strconv.Itoa(int(rankDifference))
+			if rankDifference >= 0 {
+				rankDifferenceString = "+" + rankDifferenceString
+			}
+			dailyDifference := intComma(int(ourDaily - opponentDaily))
+			if ourDaily-opponentDaily >= 0 {
+				dailyDifference = "+" + dailyDifference
+			}
+			totalDifference := intComma(int(ourTotal - opponentTotal))
+			if ourTotal-opponentTotal >= 0 {
+				totalDifference = "+" + totalDifference
+			}
+			message += round[0] + "\t" + rankDifferenceString + strings.Repeat(" ", 8-len(rankDifferenceString)) + dailyDifference + strings.Repeat(" ", 18-len(dailyDifference)) + totalDifference + "\n"
+		}
+		message += "```\n"
+
+		embedMessage = dgo.MessageEmbed{Description: message, Title: "Our crew vs " + opponent}
+		_, err = session.ChannelMessageSendEmbed(channel, &embedMessage)
+
 		time.Sleep(time.Second)
 	}
 
-	return err
+	return nil
 }
 
 func bless(session *dgo.Session, channel string) error {
@@ -500,23 +488,49 @@ func bless(session *dgo.Session, channel string) error {
 }
 
 func translate(session *dgo.Session, channel, message string) error {
+	logger.Println("Translating tweet in following message:\n" + message)
 	urlRegex, err := regexp.Compile(`https://(?:www\.|mobile\.)?(?:twitter|x)\.com/\S+/status/\d+`)
 	if err != nil {
 		return err
 	}
 	urls := urlRegex.FindAllString(message, -1)
+	logger.Printf("Found %d urls:\n", len(urls))
+	logger.Printf("%v\n", urls)
 	for _, URL := range urls {
 		path, _ := launcher.LookPath()
 		u := launcher.New().Bin(path).Headless(true).MustLaunch()
 		browser := rod.New().ControlURL(u).MustConnect()
 		defer browser.MustClose()
 
-		page := browser.MustPage(URL)
+		logger.Println("Browser connected. Opening page...")
+
+		page, err := browser.Page(proto.TargetCreateTarget{URL: URL})
+		if err != nil {
+			return err
+		}
+
+		logger.Println("Page opened. Waiting for load...")
 
 		//wait := page.MustWaitRequestIdle()
-		tweetTextElement := page.MustWaitLoad().MustElement("[data-testid=tweetText]")
+		err = page.WaitLoad()
+		if err != nil {
+			return err
+		}
+
+		logger.Println("Load completed. Finding tweet elements...")
+
+		tweetTextElement, err := page.Element("[data-testid=tweetText]")
+		if err != nil {
+			return err
+		}
+
+		logger.Println("Found tweet element. Obtaining attributes")
 		//wait()
-		language, _ := tweetTextElement.Attribute("lang")
+		language, err := tweetTextElement.Attribute("lang")
+		if err != nil {
+			return err
+		}
+		logger.Println("Language found: " + *language)
 		if *language != "ja" {
 			continue
 		}
@@ -526,10 +540,15 @@ func translate(session *dgo.Session, channel, message string) error {
 			return err
 		}
 
+		logger.Println("Text found: " + tweetText)
+
 		toEraseRegex, err := regexp.Compile(`https://t\.co/[0-9a-zA-Z]+`)
 		if err != nil {
 			return err
 		}
+
+		logger.Println("Requesting translation...")
+
 		tweetText = url.QueryEscape(toEraseRegex.ReplaceAllString(tweetText, ""))
 		deeplResponse, err := http.Post(
 			"https://api-free.deepl.com/v2/translate",
@@ -544,6 +563,9 @@ func translate(session *dgo.Session, channel, message string) error {
 			return err
 		}
 		defer deeplResponse.Body.Close()
+
+		logger.Println("Response received. Parsing...")
+
 		deeplResponseData := make(map[string][]map[string]string)
 		body, err := io.ReadAll(deeplResponse.Body)
 		if err != nil {
@@ -555,6 +577,8 @@ func translate(session *dgo.Session, channel, message string) error {
 		}
 
 		translatedTweet := html.UnescapeString(deeplResponseData["translations"][0]["text"])
+
+		logger.Println("Translation obtained: " + translatedTweet)
 
 		embeddedURLsRegex, err := regexp.Compile(`http(?:s)?:\/\/\S+`)
 		if err != nil {
