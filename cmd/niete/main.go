@@ -419,7 +419,7 @@ func getPlayersRanking(session *dgo.Session, channel, crewID string) error {
 	}
 	message += "```"
 
-	embedMessage := dgo.MessageEmbed{Description: message, Title: "Hall of shame"}
+	embedMessage := dgo.MessageEmbed{Description: message, Title: "Wall of shame"}
 	_, err = session.ChannelMessageSendEmbed(channel, &embedMessage)
 
 	return err
