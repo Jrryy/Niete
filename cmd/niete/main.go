@@ -15,12 +15,14 @@ import (
 	"os/exec"
 	"os/signal"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/go-rod/rod/lib/proto"
+	"github.com/mattn/go-runewidth"
 
 	dgo "github.com/bwmarrin/discordgo"
 	"github.com/go-rod/rod"
@@ -278,7 +280,7 @@ func showTime(session *dgo.Session, channel string) error {
 	return nil
 }
 
-func getLastRoundsPerformance(session *dgo.Session, channel, crewId string) ([][]string, error) {
+func getLastRoundsPerformance(crewId string) ([][]string, error) {
 	resp, err := http.Get("https://gbfdata.com/en/guild/" + crewId)
 
 	if err != nil {
@@ -331,6 +333,96 @@ func getLastRoundsPerformance(session *dgo.Session, channel, crewId string) ([][
 	}
 
 	return rounds, err
+}
+
+func getCrewGWMembers(crewId string) ([][4]string, error) {
+	url := "https://gbfdata.com/en/guild/members/" + crewId
+
+	resp, err := http.Get(url)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+
+	if err != nil {
+		return nil, err
+	}
+
+	node, err := html.Parse(bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+
+	var tableNode *html.Node
+
+	tableNode = node.
+		FirstChild.NextSibling.  // <html>
+		FirstChild.              //   <head>
+		NextSibling.NextSibling. //   <body>
+		FirstChild.NextSibling.  //     <header>
+		NextSibling.NextSibling. //     <div>
+		FirstChild.NextSibling.  //       <p>
+		NextSibling.NextSibling. //       <select>
+		NextSibling.NextSibling. //       <table>
+		FirstChild.NextSibling.  //         <thead>
+		NextSibling.NextSibling  //         <tbody>
+
+	players := make([][4]string, 0)
+
+	tableData := tableNode.FirstChild.NextSibling
+	for tableData != nil {
+		name := tableData.FirstChild.NextSibling.FirstChild.NextSibling.FirstChild.Data
+		rank := tableData.FirstChild.NextSibling.NextSibling.NextSibling.FirstChild.Data
+		gwRank := tableData.FirstChild.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.FirstChild.Data
+		honors := tableData.FirstChild.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.FirstChild.Data
+		players = append(players, [4]string{strings.TrimSpace(name), strings.TrimSpace(rank), strings.TrimSpace(gwRank), strings.TrimSpace(honors)})
+		tableData = tableData.NextSibling.NextSibling
+	}
+
+	return players, err
+}
+
+func getPlayersRanking(session *dgo.Session, channel, crewID string) error {
+	players, err := getCrewGWMembers(crewID)
+	if err != nil {
+		return err
+	}
+
+	sort.Slice(players, func(i, j int) bool {
+		if players[i][2] == "No data." {
+			return false
+		}
+		if players[j][2] == "No data." {
+			return true
+		}
+		iRank, _ := strconv.ParseInt(players[i][2], 10, 0)
+		jRank, _ := strconv.ParseInt(players[j][2], 10, 0)
+		return iRank < jRank
+	})
+
+	message := "```\n    Player\t\t Rank\tGW rank      Total Honors\n"
+
+	for n, player := range players {
+		message += fmt.Sprint(n+1) + "."
+		if n+1 < 10 {
+			message += " "
+		}
+		message += player[0] + strings.Repeat(" ", 15-runewidth.StringWidth(player[0]))
+		if runewidth.StringWidth(player[0]) < len(player[0]) {
+			message += " "
+		}
+		message += player[1] + strings.Repeat(" ", 10-len(player[1])) + player[2] + strings.Repeat(" ", 12-len(player[2])) + player[3] + "\n"
+	}
+	message += "```"
+
+	embedMessage := dgo.MessageEmbed{Description: message, Title: "Hall of shame"}
+	_, err = session.ChannelMessageSendEmbed(channel, &embedMessage)
+
+	return err
 }
 
 func searchGWOpponent(session *dgo.Session, channel, opponent string) error {
@@ -413,7 +505,7 @@ func searchGWOpponent(session *dgo.Session, channel, opponent string) error {
 			return err
 		}
 
-		rounds, err := getLastRoundsPerformance(session, channel, crewId)
+		rounds, err := getLastRoundsPerformance(crewId)
 
 		if err != nil {
 			session.ChannelMessageSend(channel, "Could not retrieve last rounds performance.")
@@ -429,7 +521,7 @@ func searchGWOpponent(session *dgo.Session, channel, opponent string) error {
 		embedMessage := dgo.MessageEmbed{Description: message, Title: "Crew's performance"}
 		_, err = session.ChannelMessageSendEmbed(channel, &embedMessage)
 
-		myRounds, err := getLastRoundsPerformance(session, channel, myCrew)
+		myRounds, err := getLastRoundsPerformance(myCrew)
 
 		if err != nil {
 			session.ChannelMessageSend(channel, "Could not retrieve last rounds performance for our crew.")
@@ -804,6 +896,9 @@ func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 		if strings.HasPrefix(message, "$gw") {
 			opponent := strings.Trim(strings.TrimPrefix(message, "$gw"), " ")
 			e = searchGWOpponent(session, m.ChannelID, opponent)
+		}
+		if strings.HasPrefix(message, "$shame") {
+			e = getPlayersRanking(session, m.ChannelID, myCrew)
 		}
 	}
 	if e != nil {
