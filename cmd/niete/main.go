@@ -404,7 +404,7 @@ func getPlayersRanking(session *dgo.Session, channel, crewID string) error {
 		return iRank < jRank
 	})
 
-	message := "```\n    Player\t\t Rank\tGW rank      Total Honors\n"
+	message := "```\n   Player\t\t Rank\t  GW rank     Total Honors\n"
 
 	for n, player := range players {
 		message += fmt.Sprint(n+1) + "."
