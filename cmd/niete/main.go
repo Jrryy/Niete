@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/go-rod/rod/lib/proto"
 	"io"
 	"log"
 	"math"
@@ -20,6 +19,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/go-rod/rod/lib/proto"
 
 	dgo "github.com/bwmarrin/discordgo"
 	"github.com/go-rod/rod"
@@ -299,17 +300,17 @@ func getLastRoundsPerformance(session *dgo.Session, channel, crewId string) ([][
 
 	var tableNode *html.Node
 	tableNode = node.
-		FirstChild.NextSibling. // <html>
-		FirstChild. //   <head>
+		FirstChild.NextSibling.  // <html>
+		FirstChild.              //   <head>
 		NextSibling.NextSibling. //   <body>
-		FirstChild.NextSibling. //     <header>
+		FirstChild.NextSibling.  //     <header>
 		NextSibling.NextSibling. //     <div>
-		FirstChild.NextSibling. //       <div>
-		FirstChild.NextSibling. //         <div>
+		FirstChild.NextSibling.  //       <div>
+		FirstChild.NextSibling.  //         <div>
 		NextSibling.NextSibling. //         <nav>
 		NextSibling.NextSibling. //         <table>
-		FirstChild.NextSibling. //           <thead>
-		NextSibling.NextSibling //           <tbody>
+		FirstChild.NextSibling.  //           <thead>
+		NextSibling.NextSibling  //           <tbody>
 
 	roundRow := tableNode.FirstChild.NextSibling
 	lastRound := tableNode.FirstChild.NextSibling.FirstChild.NextSibling.FirstChild.Data
@@ -735,6 +736,11 @@ func postCunny(session *dgo.Session, channel string) error {
 	return err
 }
 
+func postHonse(session *dgo.Session, channel string, message *dgo.MessageCreate) error {
+	_, err := session.ChannelMessageSendReply(channel, "https://files.catbox.moe/5jp691.mp4", message.Reference())
+	return err
+}
+
 func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 	allowed := strings.Contains(allowedChannels, m.ChannelID)
 	if m.Author.ID == session.State.User.ID {
@@ -753,6 +759,9 @@ func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 	}
 	if strings.HasPrefix(message, "$cunny") {
 		e = postCunny(session, m.ChannelID)
+	}
+	if strings.Contains(strings.ToLower(message), "honse") {
+		e = postHonse(session, m.ChannelID, m)
 	}
 	if allowed {
 		if strings.HasPrefix(message, "$starthc") {
