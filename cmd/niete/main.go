@@ -157,7 +157,7 @@ func createOrRetrievePlayerData(session *dgo.Session, channel string, discordId 
 	var playerDataDict map[string]any
 	collection := getDatabase().Collection("players")
 	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
-	result, err := collection.FindOne(ctx, bson.M{"discordId": discordId}).DecodeBytes()
+	result, err := collection.FindOne(ctx, bson.M{"discordId": discordId}).Raw()
 	err = bson.Unmarshal(result, &playerDataDict)
 	if err != nil {
 		err = createPlayerDocument(session, channel, discordId, collection)
@@ -829,7 +829,7 @@ func postCunny(session *dgo.Session, channel string) error {
 }
 
 func postHonse(session *dgo.Session, channel string, message *dgo.MessageCreate) error {
-	_, err := session.ChannelMessageSendReply(channel, "https://files.catbox.moe/5jp691.mp4", message.Reference())
+	_, err := session.ChannelMessageSendReply(channel, "https://jrryy.moe/honse.mp4", message.Reference())
 	return err
 }
 
@@ -981,7 +981,7 @@ func main() {
 	// Wait here until CTRL-C or other term signal is received.
 	fmt.Println("Bot is now running.  Press CTRL-C to exit.")
 	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
+	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
 
 	// Cleanly close down the Discord session.
