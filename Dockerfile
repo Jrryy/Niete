@@ -5,9 +5,8 @@ RUN fc-cache -fv
 
 WORKDIR /go/src/app
 
-ADD . .
+COPY . .
 
-RUN go get -v ./...
-RUN go install -v ./...
+RUN go build -o /app/niete cmd/niete/main.go
 
-ENTRYPOINT ["niete"]
+ENTRYPOINT ["/app/niete"]

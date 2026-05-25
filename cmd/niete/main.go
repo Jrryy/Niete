@@ -10,7 +10,6 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -642,16 +641,17 @@ func translate(session *dgo.Session, channel, message string) error {
 
 		logger.Println("Requesting translation...")
 
-		tweetText = url.QueryEscape(toEraseRegex.ReplaceAllString(tweetText, ""))
-		deeplResponse, err := http.Post(
-			"https://api-free.deepl.com/v2/translate",
-			"application/x-www-form-urlencoded",
-			strings.NewReader(fmt.Sprintf(
-				"auth_key=%s&source_lang=JA&target_lang=EN&text=%s",
-				deeplKey,
-				tweetText,
-			)),
-		)
+		tweetText = toEraseRegex.ReplaceAllString(tweetText, "")
+		payload, _ := json.Marshal(map[string]any{"text": [1]string{tweetText}, "target_lang": "EN", "source_lang": "JA", "formality": "prefer_less"})
+		request, _ := http.NewRequest("POST", "https://api-free.deepl.com/v2/translate", bytes.NewReader(payload))
+		request.Header.Add("Content-Type", "application/json")
+		request.Header.Add("Authorization", fmt.Sprintf("DeepL-Auth-Key %s", deeplKey))
+
+		client := &http.Client{
+			Timeout: time.Second * 10, // Timeout each requests
+		}
+
+		deeplResponse, err := client.Do(request)
 		if err != nil {
 			return err
 		}
