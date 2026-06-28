@@ -621,9 +621,20 @@ func translate(session *dgo.Session, channel, message string) error {
 		var tweetTextElement *rod.Element
 
 		if ariaLabel, _ := spanElements[0].Attribute("aria-label"); ariaLabel != nil {
-			tweetTextElement = spanElements[0]
+			if class, _ := spanElements[1].Attribute("class"); *class == "contents" {
+				logger.Println("Empty tweet")
+				return nil
+			} else {
+
+				tweetTextElement = spanElements[1]
+			}
 		} else {
-			tweetTextElement = spanElements[1]
+			if class, _ := spanElements[0].Attribute("class"); *class == "contents" {
+				logger.Println("Empty tweet")
+				return nil
+			} else {
+				tweetTextElement = spanElements[0]
+			}
 		}
 
 		logger.Println("Found tweet element. Obtaining text")
