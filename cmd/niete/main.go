@@ -594,7 +594,9 @@ func translate(session *dgo.Session, channel, message string) error {
 	logger.Printf("%v\n", urls)
 	for _, URL := range urls {
 		path, _ := launcher.LookPath()
-		u := launcher.New().Bin(path).Headless(true).MustLaunch()
+		currentLauncher := launcher.New()
+		defer currentLauncher.Kill()
+		u := currentLauncher.Bin(path).Headless(true).MustLaunch()
 		browser := rod.New().ControlURL(u).MustConnect()
 		defer browser.MustClose()
 
