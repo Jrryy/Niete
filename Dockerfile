@@ -8,6 +8,7 @@ WORKDIR /go/src/app
 COPY cmd/ cmd/
 COPY go.mod go.mod
 COPY go.sum go.sum
+COPY img/ img/
 
 RUN go build -o /app/niete cmd/niete/main.go
 
