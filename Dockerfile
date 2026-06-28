@@ -5,7 +5,9 @@ RUN fc-cache -fv
 
 WORKDIR /go/src/app
 
-COPY . .
+COPY cmd/ cmd/
+COPY go.mod go.mod
+COPY go.sum go.sum
 
 RUN go build -o /app/niete cmd/niete/main.go
 

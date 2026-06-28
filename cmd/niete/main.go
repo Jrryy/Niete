@@ -32,6 +32,27 @@ import (
 	"golang.org/x/net/html"
 )
 
+type individualRankingData struct {
+	Level uint   `json:"level"`
+	Rank  uint   `json:"rank"`
+	Point uint64 `json:"point"`
+}
+
+type userRankingData struct {
+	UserId         uint64                 `json:"user_id"`
+	Name           string                 `json:"name"`
+	MemberPosition uint                   `json:"member_position"`
+	HasRanking     bool                   `json:"has_ranking"`
+	Ranking        *individualRankingData `json:"ranking"`
+}
+
+type crewAPIData struct {
+	MembersData    []userRankingData `json:"data"`
+	Meta           any               `json:"meta"`
+	RankingContext any               `json:"ranking_context"`
+	Scheduled      any               `json:"schedules"`
+}
+
 var (
 	discordToken, allowedChannels, translationForbiddenChannels, deeplKey, myCrew, ngrokPath, mcDirPath string
 	mongoClient                                                                                         *mongo.Client
@@ -334,8 +355,8 @@ func getLastRoundsPerformance(crewId string) ([][]string, error) {
 	return rounds, err
 }
 
-func getCrewGWMembers(crewId string) ([][4]string, error) {
-	url := "https://gbfdata.com/en/guild/members/" + crewId
+func getCrewGWMembers(crewId string) ([]userRankingData, error) {
+	url := fmt.Sprintf("https://gbfdata.com/api/guilds/%s/members", crewId)
 
 	resp, err := http.Get(url)
 
@@ -351,38 +372,14 @@ func getCrewGWMembers(crewId string) ([][4]string, error) {
 		return nil, err
 	}
 
-	node, err := html.Parse(bytes.NewReader(body))
+	jsonData := &crewAPIData{}
+	err = json.Unmarshal(body, jsonData)
+
 	if err != nil {
 		return nil, err
 	}
 
-	var tableNode *html.Node
-
-	tableNode = node.
-		FirstChild.NextSibling.  // <html>
-		FirstChild.              //   <head>
-		NextSibling.NextSibling. //   <body>
-		FirstChild.NextSibling.  //     <header>
-		NextSibling.NextSibling. //     <div>
-		FirstChild.NextSibling.  //       <p>
-		NextSibling.NextSibling. //       <select>
-		NextSibling.NextSibling. //       <table>
-		FirstChild.NextSibling.  //         <thead>
-		NextSibling.NextSibling  //         <tbody>
-
-	players := make([][4]string, 0)
-
-	tableData := tableNode.FirstChild.NextSibling
-	for tableData != nil {
-		name := tableData.FirstChild.NextSibling.FirstChild.NextSibling.FirstChild.Data
-		rank := tableData.FirstChild.NextSibling.NextSibling.NextSibling.FirstChild.Data
-		gwRank := tableData.FirstChild.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.FirstChild.Data
-		honors := tableData.FirstChild.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.NextSibling.FirstChild.Data
-		players = append(players, [4]string{strings.TrimSpace(name), strings.TrimSpace(rank), strings.TrimSpace(gwRank), strings.TrimSpace(honors)})
-		tableData = tableData.NextSibling.NextSibling
-	}
-
-	return players, err
+	return jsonData.MembersData, err
 }
 
 func getPlayersRanking(session *dgo.Session, channel, crewID string) error {
@@ -392,15 +389,13 @@ func getPlayersRanking(session *dgo.Session, channel, crewID string) error {
 	}
 
 	sort.Slice(players, func(i, j int) bool {
-		if players[i][2] == "No data." {
+		if players[i].Ranking == nil {
 			return false
 		}
-		if players[j][2] == "No data." {
+		if players[j].Ranking == nil {
 			return true
 		}
-		iRank, _ := strconv.ParseInt(players[i][2], 10, 0)
-		jRank, _ := strconv.ParseInt(players[j][2], 10, 0)
-		return iRank < jRank
+		return players[i].Ranking.Rank < players[j].Ranking.Rank
 	})
 
 	message := "```\n   Player\t\t Rank\t  GW rank     Total Honors\n"
@@ -410,11 +405,20 @@ func getPlayersRanking(session *dgo.Session, channel, crewID string) error {
 		if n+1 < 10 {
 			message += " "
 		}
-		message += player[0] + strings.Repeat(" ", 15-runewidth.StringWidth(player[0]))
-		if runewidth.StringWidth(player[0]) < len(player[0]) {
+		message += player.Name + strings.Repeat(" ", 15-runewidth.StringWidth(player.Name))
+		if runewidth.StringWidth(player.Name) < len(player.Name) {
 			message += " "
 		}
-		message += player[1] + strings.Repeat(" ", 10-len(player[1])) + player[2] + strings.Repeat(" ", 12-len(player[2])) + player[3] + "\n"
+		if player.Ranking == nil {
+			message += "No data.  No data.    No data."
+		} else {
+			message += fmt.Sprint(player.Ranking.Level) +
+				strings.Repeat(" ", 9-int(math.Log10(float64(player.Ranking.Level)))) +
+				fmt.Sprint(player.Ranking.Rank) +
+				strings.Repeat(" ", 11-int(math.Log10(float64(player.Ranking.Rank)))) +
+				fmt.Sprint(player.Ranking.Point)
+		}
+		message += "\n"
 	}
 	message += "```"
 
@@ -604,28 +608,25 @@ func translate(session *dgo.Session, channel, message string) error {
 		logger.Println("Page opened. Waiting for load...")
 
 		//wait := page.MustWaitRequestIdle()
-		err = page.WaitLoad()
-		if err != nil {
-			return err
-		}
+		page.MustWaitDOMStable()
 
 		logger.Println("Load completed. Finding tweet elements...")
 
-		tweetTextElement, err := page.Element("[data-testid=tweetText]")
-		if err != nil {
-			return err
+		spanElements := page.MustElements("span")
+
+		if len(spanElements) < 2 {
+			return fmt.Errorf("couldn't find the right elements in the tweet")
 		}
 
-		logger.Println("Found tweet element. Obtaining attributes")
-		//wait()
-		language, err := tweetTextElement.Attribute("lang")
-		if err != nil {
-			return err
+		var tweetTextElement *rod.Element
+
+		if ariaLabel, _ := spanElements[0].Attribute("aria-label"); ariaLabel != nil {
+			tweetTextElement = spanElements[0]
+		} else {
+			tweetTextElement = spanElements[1]
 		}
-		logger.Println("Language found: " + *language)
-		if *language != "ja" {
-			continue
-		}
+
+		logger.Println("Found tweet element. Obtaining text")
 
 		tweetText, err := tweetTextElement.Text()
 		if err != nil {
@@ -642,7 +643,7 @@ func translate(session *dgo.Session, channel, message string) error {
 		logger.Println("Requesting translation...")
 
 		tweetText = toEraseRegex.ReplaceAllString(tweetText, "")
-		payload, _ := json.Marshal(map[string]any{"text": [1]string{tweetText}, "target_lang": "EN", "source_lang": "JA", "formality": "prefer_less"})
+		payload, _ := json.Marshal(map[string]any{"text": [1]string{tweetText}, "target_lang": "EN", "formality": "prefer_less"})
 		request, _ := http.NewRequest("POST", "https://api-free.deepl.com/v2/translate", bytes.NewReader(payload))
 		request.Header.Add("Content-Type", "application/json")
 		request.Header.Add("Authorization", fmt.Sprintf("DeepL-Auth-Key %s", deeplKey))
@@ -660,6 +661,11 @@ func translate(session *dgo.Session, channel, message string) error {
 		logger.Println("Response received. Parsing...")
 
 		deeplResponseData := make(map[string][]map[string]string)
+
+		// testData := make(map[string]string)
+		// testBody, _ := io.ReadAll(deeplResponse.Body)
+		// json.Unmarshal(testBody, &testData)
+		// fmt.Println(testData)
 		body, err := io.ReadAll(deeplResponse.Body)
 		if err != nil {
 			return err
@@ -667,6 +673,11 @@ func translate(session *dgo.Session, channel, message string) error {
 		err = json.Unmarshal(body, &deeplResponseData)
 		if err != nil {
 			return err
+		}
+
+		if deeplResponseData["translations"][0]["detected_source_language"] == "EN" {
+			logger.Println("The tweet was in English, no need to post the translation")
+			return nil
 		}
 
 		translatedTweet := html.UnescapeString(deeplResponseData["translations"][0]["text"])
@@ -873,7 +884,7 @@ func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 		}
 		if strings.HasPrefix(message, "$spark") {
 			var args []string
-			for _, arg := range strings.Split(strings.TrimPrefix(message, "$spark"), " ") {
+			for arg := range strings.SplitSeq(strings.TrimPrefix(message, "$spark"), " ") {
 				if arg != "" {
 					args = append(args, arg)
 				}
@@ -893,8 +904,8 @@ func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 				}
 			}
 		}
-		if strings.HasPrefix(message, "$gw") {
-			opponent := strings.Trim(strings.TrimPrefix(message, "$gw"), " ")
+		if after, ok := strings.CutPrefix(message, "$gw"); ok {
+			opponent := strings.Trim(after, " ")
 			e = searchGWOpponent(session, m.ChannelID, opponent)
 		}
 		if strings.HasPrefix(message, "$shame") {
@@ -902,9 +913,9 @@ func messageHandler(session *dgo.Session, m *dgo.MessageCreate) {
 		}
 	}
 	if e != nil {
-		logger.Println(e)
-		logger.Println("Error triggered by message:")
-		logger.Println(m.Content)
+		fmt.Println(e)
+		fmt.Println("Error triggered by message:")
+		fmt.Println(m.Content)
 	}
 }
 
